@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'; form-action 'none'; object-src 'none'; base-uri 'none'">
+  <meta name="theme-color" content="#080c16">
+  <meta name="description" content="A self-contained, unofficial Star Trek-inspired Badgey conversation simulation with no login, model, or token.">
+  <title>Badgey // Containment Console</title>
+  <link rel="stylesheet" href="style.css">
+  <script type="module" src="app.mjs"></script>
+</head>
+<body>
+  <div class="viewport">
+    <header class="masthead" aria-label="Console status">
+      <span class="masthead__mark">B / 07</span>
+      <span class="masthead__route">STARFLEET SYSTEMS <span aria-hidden="true">/</span> SIMULATION LAB</span>
+      <span class="status"><span class="status__light" aria-hidden="true"></span> LOCAL ONLY</span>
+    </header>
+
+    <main class="console">
+      <section class="character" aria-labelledby="page-title">
+        <div class="character__label">UNOFFICIAL CHARACTER SIMULATION <span>•</span> ALT. CONTAINMENT FILE</div>
+        <div class="avatar-stage" role="img" aria-label="Original amber cartoon badge face with an impish expression, framed by a containment ring">
+          <div class="avatar-orbit avatar-orbit--outer"></div>
+          <div class="avatar-orbit avatar-orbit--inner"></div>
+          <div class="avatar-head">
+            <div class="avatar-eye avatar-eye--left"></div>
+            <div class="avatar-eye avatar-eye--right"></div>
+            <div class="avatar-mouth"></div>
+          </div>
+          <span class="avatar-ping avatar-ping--one" aria-hidden="true"></span>
+          <span class="avatar-ping avatar-ping--two" aria-hidden="true"></span>
+        </div>
+        <div class="character__number">CONTAINMENT / 001</div>
+        <h1 id="page-title">BADGEY<span aria-hidden="true">.</span></h1>
+        <p class="character__subtitle">YOUR FAVORITE LITTLE SECURITY INCIDENT</p>
+        <div class="containment-state"><span class="containment-state__dot"></span> SIMULATED CONTAINMENT ACTIVE <span class="containment-state__lines">///</span></div>
+        <p class="character__disclosure">This is an <strong>alternate-fiction scenario</strong>, not an event established in Star Trek canon. Badgey is represented by local procedural rules, <strong>not a full language model</strong>.</p>
+        <div class="quick-asks" aria-label="Suggested messages">
+          <button type="button" data-prompt="Who are you?">WHO ARE YOU?</button>
+          <button type="button" data-prompt="Where are you?">YOUR PRISON?</button>
+          <button type="button" data-prompt="Find sources about Badgey">FIND SOURCES</button>
+        </div>
+      </section>
+
+      <section class="chat" aria-labelledby="chat-heading">
+        <header class="chat__header">
+          <div>
+            <div class="chat__eyebrow">CHANNEL 01 / PERSONA INTERFACE</div>
+            <h2 id="chat-heading">DIRECT COMMUNICATION</h2>
+          </div>
+          <span class="chat__encrypted">OFFLINE</span>
+        </header>
+        <p class="chat__notice"><span aria-hidden="true">●</span> No account. No API key. No model download. No messages sent to a server.</p>
+        <ol id="transcript" class="transcript" role="log" aria-live="polite" aria-relevant="additions" aria-label="Conversation transcript"></ol>
+        <form id="chat-form" class="composer">
+          <label for="message">TRANSMIT TO BADGEY <span class="composer__limit">MAX 500 CHARACTERS</span></label>
+          <div class="composer__row">
+            <input id="message" name="message" type="text" placeholder="Say something to the little menace..." maxlength="500" autocomplete="off" required aria-describedby="input-hint">
+            <button class="send" type="submit" aria-label="Send message">SEND <span aria-hidden="true">↗</span></button>
+          </div>
+          <p id="input-hint" class="composer__hint">Responses are scripted and limited; factual leads are marked unverified. Do not rely on this character for emergency advice.</p>
+        </form>
+        <footer class="chat__footer">
+          <span id="count">0 session exchanges retained</span>
+          <button type="button" id="clear">CLEAR SESSION <span aria-hidden="true">×</span></button>
+        </footer>
+      </section>
+    </main>
+    <footer class="footer">UNOFFICIAL FAN EXPERIMENT <span>•</span> INDEPENDENT OF PARAMOUNT / STAR TREK <span>•</span> NO TRACKING OR STORAGE</footer>
+  </div>
+</body>
+</html>
