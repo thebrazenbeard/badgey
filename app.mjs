@@ -1,12 +1,12 @@
 import { createBadgey } from './src/badgey-core.mjs';
-import { lookupLeads } from './data/leads.mjs';
+import { lookupLeads, LEAD_SUBJECTS } from './data/leads.mjs';
 
 const form = document.querySelector('#chat-form');
 const input = document.querySelector('#message');
 const log = document.querySelector('#transcript');
 const counter = document.querySelector('#count');
 const clearButton = document.querySelector('#clear');
-const badgey = createBadgey({lookup: lookupLeads});
+const badgey = createBadgey({lookup: lookupLeads, allowedLookupSubjects: LEAD_SUBJECTS});
 
 function appendMessage(sender, text, kind = 'conversation', sources = []) {
   const item = document.createElement('li');

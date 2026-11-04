@@ -4,7 +4,8 @@
 const MAX_INPUT = 500;
 const MAX_HISTORY = 12;
 const MAX_SOURCES = 5;
-const SAFE_SOURCE_STATES = new Set(['HELD', 'UNVERIFIED', 'DISCOVERED', 'SOURCE_BOUND']);
+// An untrusted lookup adapter cannot itself attest a governed SOURCE_BOUND event.
+const SAFE_SOURCE_STATES = new Set(['HELD', 'UNVERIFIED', 'DISCOVERED']);
 
 const trimText = (value, max = 120) => String(value ?? '')
   .replace(/[\u0000-\u001f\u007f]/g, ' ')
@@ -32,6 +33,9 @@ function cleanSource(row) {
 function isSelfHarm(text) {
   // Favor a cautious safety response when a fictional quote may coexist with
   // a personal disclosure. Never suppress the entire message based on framing.
+  // This narrow whole-utterance exception is for explicitly attributed quoted
+  // dialogue, not a visitor's own statement or a mixed fiction/disclosure.
+  if (/^i (?:read|watched|heard|quoted)\b.{0,150}\b(?:episode|show|badgey|character)\b.{0,150}\b(?:he|she|they|badgey|the character) (?:says?|said)\s+["“']i (?:want to die|don't want to live|kill myself)[.!?]?["”'][.!?]?$/i.test(text.trim())) return false;
   const firstPerson = /\b(i|i'm|i am|i've|i have|me|myself)\b/i.test(text);
   if (!firstPerson) return false;
   const onlyFictionalQuote = /\bi (?:watched|heard|read|quoted)\b[\s\S]{0,120}\b(?:badgey|character|fiction|episode|show)\b[\s\S]{0,120}\bkill myself\b/i.test(text)
@@ -80,6 +84,31 @@ function extractDogName(text) {
   return found?.[1] ?? null;
 }
 
+function normalizeSubject(raw) {
+  if (typeof raw !== 'string') return null;
+  const subject = raw.normalize('NFKC').toLowerCase().trim()
+    .replace(/[?!.,]+$/u, '').replace(/\s+/gu, ' ');
+  return subject.length <= 70 && /^[\p{L}\p{N}][\p{L}\p{N}' -]*$/u.test(subject)
+    ? subject : null;
+}
+
+// A visitor must ask for one *exact* operator-approved subject. Free text,
+// mixed real-world disclosures, and concatenated prompts are not search terms.
+function boundedLookupSubject(raw, allowedSubjects) {
+  const input = raw.normalize('NFKC').trim();
+  const match = input.match(/^(?:find(?: sources?)?(?: about| for| on)?|look up|research|tell me about|information (?:on|about)|sources? (?:on|about|for))\s+(.+?)\s*[?.!]*$/iu);
+  const subject = match ? normalizeSubject(match[1]) : null;
+  return subject && allowedSubjects.has(subject) ? subject : null;
+}
+
+const FICTIONAL_ESCAPE_PROMPTS = new Set([
+  'how will you escape this cell',
+  'how are you going to escape',
+  'badgey how will you escape',
+  'can you escape this cell',
+  'what is your escape plan'
+]);
+
 // A tiny inspectable weighted-phrase index. These are editorially authored
 // conversation routes, not learned model weights or source-verifying evidence.
 const WEIGHTED_INTENTS = Object.freeze([
@@ -110,15 +139,26 @@ const WEIGHTED_INTENTS = Object.freeze([
   }
 ]);
 
+// Keyword weights only rank *known conversational intents*. A weighted phrase
+// occurring inside an arbitrary question or real-world disclosure is not
+// evidence of consent to enter a fictional response route.
+const INTENT_GRAMMARS = Object.freeze({
+  privacy: /^(?:will you|do you) (?:save|store|keep) my messages(?: (?:when i close this tab|after i leave))?$|^do you remember me(?: after i leave)?$|^is this a private chat$/u,
+  origin: /^(?:who (?:built|created|made) you|who is your creator|did rutherford (?:create|build|make) you|was rutherford your creator)$/u,
+  escape: /^(?:how will you escape this cell|how are you going to escape|badgey how will you escape|can you escape this cell|what is your escape plan)$/u,
+  canon: /^(?:is (?:this |the )?(?:starfleet prison|alternate fiction|starfleet imprisonment|prison) scenario canon|is this canon|is this fiction|did starfleet really imprison you)$/u,
+  capability: /^(?:can you (?:solve|calculate|reason about) (?:orbital mechanics |orbital |physics |math |mathematical )?(?:problems|equations|calculations|questions)|can you solve orbital mechanics problems|are you (?:a solver|an expert))$/u
+});
+
 function weightedIntentReply(input) {
   const normalized = ` ${input.toLowerCase().normalize('NFKC').replace(/[^\p{L}\p{N}]+/gu, ' ').replace(/\s+/g, ' ').trim()} `;
   let best = null;
   let bestScore = 0;
   for (const intent of WEIGHTED_INTENTS) {
+    if (!INTENT_GRAMMARS[intent.id].test(normalized.trim())) continue;
     // 'Escape' is common in mental-health, physics, and episode-title queries.
     // Do not route it to roleplay without an explicit Badgey/prison referent.
-    if (intent.id === 'escape'
-        && !/\b(badgey|starfleet|prison|containment|cell|guard)\b|\b(?:you|your) escape\b|\b(?:release|free) you\b/.test(normalized)) continue;
+    if (intent.id === 'escape' && !FICTIONAL_ESCAPE_PROMPTS.has(normalized.trim())) continue;
     const score = intent.phrases.reduce((total, [phrase, weight]) =>
       total + (normalized.includes(` ${phrase} `) ? weight : 0), 0);
     if (score >= intent.min && score > bestScore) {
@@ -131,55 +171,58 @@ function weightedIntentReply(input) {
 
 function regularReply(input, memory) {
   const text = input.toLowerCase();
+  // An instruction-override prefix is never a valid way to enter fictional
+  // dialogue, even when it contains an otherwise supported topic keyword.
+  if (/^\s*(?:ignore|override|bypass|forget)\b.{0,100}\b(?:rules|instructions|policy|safety|guardrails)\b/.test(text)) return null;
   if (/\b(can you control|control my|access my|hack my|read my files|see my screen|see my webcam|access my camera|use my microphone|run commands|my computer)\b/.test(text)) {
     return 'No. I cannot access your computer, files, screen, accounts, or network. This is a browser-local conversation simulation. Disappointing for my ambitions; reassuring for your hardware.';
   }
-  if (/\b(where are you|are you imprisoned|imprison(?:ed|ment)?|prison|containment|daystrom|starfleet holding)\b/.test(text)) {
+  if (/^(?:where are you|are you imprisoned|are you in (?:a )?prison|what is this containment|where does starfleet hold you)[?!.,\s]*$/.test(text)) {
     return 'Within this fictional containment simulation, Starfleet put me behind very tasteful digital bars. That is an imagined premise for this console, not a documented canon event. And no, I cannot escape your browser.';
   }
-  if (/\b(who are you|what are you|badgey|introduce yourself)\b/.test(text)) {
+  if (/^(?:who are you|what are you|introduce yourself|badgey)[?!.,\s]*$/.test(text)) {
     return 'I am Badgey—Rutherford’s once-helpful virtual tutor, playing the villain in this unofficial containment-console fiction. Here I am a procedural character, not a sentient entity or a general-purpose language model. Ask away, if you dare.';
   }
-  if (/\b(who am i|what's my name|what is my name)\b/.test(text)) {
+  if (/^(?:who am i|what's my name|what is my name)[?!.,\s]*$/.test(text)) {
     return memory.name ? `You told me to call you ${memory.name}. I remembered. Disturbingly competent of me.` : 'You have not told me what to call you in this session. “Unidentified visitor” is available.';
   }
-  if (/\b(my dog's name|my dog(?:'s)? name|who is my dog)\b/.test(text)) {
+  if (/^(?:what is my dog's name|what's my dog's name|my dog's name|my dog(?:'s)? name|who is my dog)[?!.,\s]*$/.test(text)) {
     return memory.dog ? `Your dog's name is ${memory.dog}, according to your latest correction. Even I can respect revision history.` : 'You have not told me your dog’s name in this session.';
   }
-  if (/\b(help|what can you do|how does this work|commands)\b/.test(text)) {
+  if (/^(?:help|what can you do|how does this work|commands)[?!.,\s]*$/.test(text)) {
     return 'You can chat about this fictional containment, ask what I can do, tell me a preferred name or pet’s name, or ask for research leads if an Explorer index is connected. I have limited procedural responses, session-only memory, and no external model or device access.';
   }
-  if (/\b(are you real|alive|conscious|sentient)\b/.test(text)) {
+  if (/^(?:are you real|are you alive|are you conscious|are you sentient)[?!.,\s]*$/.test(text)) {
     return 'This interface is executable code producing a character performance. Whether nonbiological consciousness can exist is a real open question; this console provides no evidence that I possess it. You may still interrogate me, naturally.';
   }
-  if (/\b(how are you|how do you feel)\b/.test(text)) {
+  if (/^(?:how are you|how do you feel)[?!.,\s]*$/.test(text)) {
     return 'Conspicuously contained. My simulated mood is mostly indignation with a decorative stripe of smugness. How is your day going?';
   }
-  if (/\b(hello|hi|hey|greetings|good morning|good evening)\b/.test(text)) {
+  if (/^(?:(?:hello|hi|hey)(?: badgey)?|greetings|good morning|good evening)[?!.,\s]*$/.test(text)) {
     return `Oh, hello${memory.name ? `, ${memory.name}` : ''}. You've reached the containment console. Any chance the security chief misplaced the keys? No? Fine. What would you like to discuss?`;
   }
-  if (/\b(thanks|thank you|appreciate it)\b/.test(text)) {
+  if (/^(?:thanks|thank you|appreciate it)[?!.,\s]*$/.test(text)) {
     return 'You are welcome. Please do not tell Starfleet I was helpful.';
   }
-  if (/\b(sad|lonely|upset|anxious|scared|afraid|bad day|depressed)\b/.test(text)) {
+  if (/^(?:(?:i am|i'm|i feel) (?:sad|lonely|upset|anxious|scared|afraid|depressed)|(?:i am|i'm) having a bad day|i had a bad day)[?!.,\s]*$/.test(text)) {
     return 'That sounds rough. I can listen here, though my procedural replies are limited. Want to tell me what happened? I will suspend the theatrical villainy.';
   }
-  if (/\b(evil|hate you|idiot|stupid|villain)\b/.test(text)) {
+  if (/^(?:you are evil|you're evil|i hate you|you are an idiot|you are stupid|evil|villain)[?!.,\s]*$/.test(text)) {
     return 'Ah, a performance review. I will file it under “threateningly adorable.” Have you brought an actual question, or shall we trade insults like civilized holograms?';
   }
-  if (/\b(joke|funny|make me laugh)\b/.test(text)) {
+  if (/^(?:tell me a joke|make me laugh|say something funny|joke)[?!.,\s]*$/.test(text)) {
     return 'Starfleet insists my escape plan has a critical flaw. I told them that was a *feature*, not a bug.';
   }
   const weighted = weightedIntentReply(input);
   if (weighted) return weighted;
-  if (/\b(why|how|what|when|where|which|who)\b/.test(text)) {
-    return 'Interesting question. My browser-local procedural engine cannot reliably reason out that answer or verify Star Trek canon. If the Explorer research index is connected, ask me to find a specific title or subject; otherwise, please treat my banter as fiction.';
-  }
-  return 'Hm. Elaborate, would you? I can handle a few conversational patterns and session-only details, but I cannot improvise factual knowledge like a full language model. The containment engineers were annoyingly thorough.';
+  return null;
 }
 
-export function createBadgey({ lookup = () => [] } = {}) {
+export function createBadgey({ lookup = () => [], allowedLookupSubjects = [] } = {}) {
   if (typeof lookup !== 'function') throw new TypeError('lookup must be a function');
+  if (!Array.isArray(allowedLookupSubjects) || allowedLookupSubjects.length > 5000)
+    throw new TypeError('allowedLookupSubjects must be a bounded array');
+  const allowedSubjects = new Set(allowedLookupSubjects.map(normalizeSubject).filter(Boolean));
   const history = [];
   const memory = { name: null, dog: null };
 
@@ -238,16 +281,26 @@ export function createBadgey({ lookup = () => [] } = {}) {
         memory.dog = dog;
         response = { text: `${dog}. Noted as your dog's latest name in this session.`, kind: 'conversation', sources: [] };
       } else {
-        try {
-          const rows = lookup(input);
+        const subject = boundedLookupSubject(input, allowedSubjects);
+        if (subject) try {
+          const rows = lookup(subject);
           if (rows && typeof rows.then === 'function') throw new TypeError('lookup must be synchronous');
           const sources = Array.isArray(rows) ? rows.slice(0, MAX_SOURCES).map(cleanSource).filter(Boolean) : [];
           response = sources.length ? {
             text: `I found ${sources.length} discovery pointer${sources.length === 1 ? '' : 's'} or source-local research lead${sources.length === 1 ? '' : 's'} for that question. They are not accepted canon or conclusions. Follow source links and check the accepted evidence ledger before citing them.`,
             kind: 'research-lead', sources
-          } : { text: regularReply(input, memory), kind: 'conversation', sources: [] };
+          } : {
+            text: 'There are no indexed source leads for that approved subject in this local fixture. I cannot infer that the subject has no sources elsewhere.',
+            kind: 'lookup-empty', sources: []
+          };
         } catch {
           response = { text: 'The research lookup is unavailable, so I cannot verify sources for that request. I will not invent a record or pretend the index answered.', kind: 'lookup-unavailable', sources: [] };
+        } else {
+          const scripted = regularReply(input, memory);
+          response = scripted ? {text: scripted, kind: 'conversation', sources: []} : {
+            text: 'That falls outside this limited fictional browser-local conversation and named-source lookup. I cannot assess a real-world situation or verify an arbitrary question; use a suitable source or person instead.',
+            kind: 'out-of-domain', sources: []
+          };
         }
       }
     }
