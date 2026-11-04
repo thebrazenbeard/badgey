@@ -16,6 +16,7 @@ Open `http://127.0.0.1:8000/`. The page uses no external libraries or remote cal
 
 - Render an original, responsive LCARS-inspired chat interface with keyboard and screen-reader affordances.
 - Respond to a deliberately **limited** set of conversational intents, retain a few session-only user corrections, and clear memory on demand.
+- Match several paraphrased questions through a tiny, inspectable weighted-phrase index. Those static weights select authored responses; they are **not learned language-model weights**, embeddings, or a claim of general semantic understanding.
 - Link to two discoverable StarTrek.com editorial resources as **DISCOVERED** pointers. These have **not** been admitted into a governed Trek research corpus and are **not** primary-episode close reads.
 - Override villain performance when common self-harm, violence-risk, or acute medical phrases appear. These pattern checks are incomplete and **not** a crisis-management service.
 - Avoid persistent storage, tokens, telemetry, third-party requests, backend dependencies, or host/device control.
