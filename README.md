@@ -32,6 +32,12 @@ free text, concatenated instructions, and unknown real-world questions never
 become research leads. The bundled app derives its small allowed subject list
 from its two static discovery pointers.
 
+External links also require an independent `allowedSourceHosts` exact-host
+allowlist (empty by default). A callback cannot approve its own destination:
+unexpected HTTPS hosts, misleading URL userinfo, and non-HTTPS links render
+as non-clickable metadata. The bundled app pins `www.startrek.com` and shows
+the destination hostname on each link. A link is not canon verification.
+
 Unknown messages return a clearly marked `out-of-domain` response, not villain
 improvisation. Containment/escape dialogue uses a small set of authored prompts
 and is not a chatbot capable of assessing emergencies; the limited safety
