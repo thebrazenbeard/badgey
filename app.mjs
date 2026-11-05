@@ -1,12 +1,12 @@
 import { createBadgey } from './src/badgey-core.mjs';
-import { lookupLeads } from './data/leads.mjs';
+import { lookupLeads, LEAD_SUBJECTS, LEAD_SOURCE_HOSTS } from './data/leads.mjs';
 
 const form = document.querySelector('#chat-form');
 const input = document.querySelector('#message');
 const log = document.querySelector('#transcript');
 const counter = document.querySelector('#count');
 const clearButton = document.querySelector('#clear');
-const badgey = createBadgey({lookup: lookupLeads});
+const badgey = createBadgey({lookup: lookupLeads, allowedLookupSubjects: LEAD_SUBJECTS, allowedSourceHosts: LEAD_SOURCE_HOSTS});
 
 function appendMessage(sender, text, kind = 'conversation', sources = []) {
   const item = document.createElement('li');
@@ -29,7 +29,7 @@ function appendMessage(sender, text, kind = 'conversation', sources = []) {
       if (source.source_url) {
         const link = document.createElement('a');
         link.href = source.source_url;
-        link.textContent = 'Open source';
+        link.textContent = `Open source (${new URL(source.source_url).hostname})`;
         link.rel = 'noopener noreferrer';
         link.target = '_blank';
         row.append(' ', link);

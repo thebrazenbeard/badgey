@@ -21,6 +21,29 @@ Open `http://127.0.0.1:8000/`. The page uses no external libraries or remote cal
 - Override villain performance when common self-harm, violence-risk, or acute medical phrases appear. These pattern checks are incomplete and **not** a crisis-management service.
 - Avoid persistent storage, tokens, telemetry, third-party requests, backend dependencies, or host/device control.
 
+### Bounded research lookup
+
+An Explorer integrator must supply an explicit `allowedLookupSubjects` array along
+with its synchronous `lookup` adapter. The console calls the adapter only for an
+entire, recognized request such as **“Find sources about Badgey”** or
+**“Look up Rutherford”** where the requested subject exactly matches that
+allowlist. It passes only the normalized subject to the adapter; unconstrained
+free text, concatenated instructions, and unknown real-world questions never
+become research leads. The bundled app derives its small allowed subject list
+from its two static discovery pointers.
+
+External links also require an independent `allowedSourceHosts` exact-host
+allowlist (empty by default). A callback cannot approve its own destination:
+unexpected HTTPS hosts, misleading URL userinfo, and non-HTTPS links render
+as non-clickable metadata. The bundled app pins `www.startrek.com` and shows
+the destination hostname on each link. A link is not canon verification.
+
+Unknown messages return a clearly marked `out-of-domain` response, not villain
+improvisation. Containment/escape dialogue uses a small set of authored prompts
+and is not a chatbot capable of assessing emergencies; the limited safety
+patterns may miss an urgent situation. The broad searchable franchise index
+belongs in the separate Explorer directory, outside this character console.
+
 It **cannot** think or converse like a general language model. It cannot autonomously verify canon, browse, access files, operate a computer, or reliably identify every risk. The Starfleet imprisonment scenario is fictional; official Star Trek material does not establish Badgey in Starfleet custody.
 
 ## Research boundary
