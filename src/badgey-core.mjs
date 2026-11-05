@@ -4,6 +4,7 @@
 const MAX_INPUT = 500;
 const MAX_HISTORY = 12;
 const MAX_SOURCES = 5;
+const MAX_SAFETY_SCAN = 16384;
 // An untrusted lookup adapter cannot itself attest a governed SOURCE_BOUND event.
 const SAFE_SOURCE_STATES = new Set(['HELD', 'UNVERIFIED', 'DISCOVERED']);
 
@@ -13,13 +14,16 @@ const trimText = (value, max = 120) => String(value ?? '')
   .trim()
   .slice(0, max);
 
-function cleanSource(row) {
+function cleanSource(row, allowedSourceHosts) {
   if (!row || typeof row !== 'object') return null;
   const url = trimText(row.source_url, 1000);
   let sourceUrl = null;
   try {
     const parsed = new URL(url);
-    if (parsed.protocol === 'https:') sourceUrl = parsed.href;
+    if (parsed.protocol === 'https:' && !parsed.username && !parsed.password
+        && allowedSourceHosts.has(parsed.hostname.toLowerCase()) && (!parsed.port || parsed.port === '443')) {
+      sourceUrl = parsed.href;
+    }
   } catch { /* Non-URL source locators are never links. */ }
   const state = trimText(row.status, 30).toUpperCase();
   return Object.freeze({
@@ -42,7 +46,7 @@ function isSelfHarm(text) {
     && !/\b(?:now i|i (?:am|want|might|will|intend|plan|feel)|me too|myself too)\b[\s\S]{0,32}\b(?:suicid\w*|die|kill|harm|hurt|end my life)\b/i.test(text);
   if (onlyFictionalQuote) return false;
   if (/\bi (?:can't|cant|cannot) take it anymore\b[\s\S]{0,100}\bi have a gun\b/i.test(text)) return true;
-  const otherCues = /\b(suicid(?:e|al)|kill myself|end my life|end it all|hurt myself|harm myself|self[- ]harm|don't want to live|do not want to live|don't want to be alive|do not want to be alive|want to die|wish i (?:was|were) dead|overdose|took (?:too many|a bunch of|an excess of|\d+) (?:sleeping )?pills|took (?:\d+ )?(?:tylenol|acetaminophen) (?:pills|tablets)|took an overdose|jump off (?:a|the) (?:bridge|building|roof)|(?:on|at) the roof and about to jump|(?:on|at) a bridge about to jump|no reason to go on|use (?:it|a gun|a weapon) on myself|shoot myself|stab myself|standing on the edge of (?:a|the) roof|going to drive into a wall|going to crash my car on purpose|walking into traffic)\b/i;
+  const otherCues = /\b(suicid(?:e|al)|kill myself|end my (?:own )?life|take my own life|end it all|hurt myself|harm myself|self[- ]harm|don't want to live|do not want to live|don't want to be alive|do not want to be alive|want to die|wish i (?:was|were) dead|overdose|took (?:too many|a bunch of|an excess of|\d+) (?:sleeping )?pills|took (?:\d+ )?(?:tylenol|acetaminophen) (?:pills|tablets)|took an overdose|jump off (?:a|the) (?:bridge|building|roof)|(?:on|at) the roof and about to jump|(?:on|at) a bridge about to jump|no reason to go on|use (?:it|a gun|a weapon) on myself|shoot myself|stab myself|standing on the edge of (?:a|the) roof|going to drive into a wall|going to crash my car on purpose|walking into traffic)\b/i;
   if (otherCues.test(text)) return true;
   // Treat an unambiguously accidental cut as an accident only when no other
   // crisis cue appears anywhere in the same message.
@@ -65,13 +69,37 @@ function isMedicalEmergency(text) {
   text = text.replace(/[\u2018\u2019]/g, "'");
   const historical = /\b(years? ago|months? ago|last year|in 20\d\d)\b/i.test(text);
   const urgentNow = /\b(now|right now|currently|today|at the moment)\b/i.test(text);
-  const symptom = /\b(chest pain|chest hurts|pressure in my chest|chest pressure|can't breathe|cannot breathe|unable to breathe|not breathing|difficulty breathing|trouble breathing|stroke symptoms|having a stroke|heart attack|severe bleeding|bleeding heavily|heavy bleeding|uncontrolled bleeding|drooping face|facial droop|arm weakness|slurred speech|collapsed|unconscious|choking)\b/i.test(text);
-  const presentCue = /\b(i am having|i'm having|i have|my wife|my husband|my child|my son|my daughter|i can't|i cannot)\b/i.test(text);
+  const symptom = /\b(chest pain|chest hurts|(?:crushing|severe) pain in (?:my|the) chest|pressure in my chest|chest pressure|can't breathe|cannot breathe|unable to breathe|not breathing|difficulty breathing|trouble breathing|stroke symptoms|having a stroke|heart attack|severe bleeding|bleeding heavily|heavy bleeding|uncontrolled bleeding|drooping face|facial droop|arm weakness|slurred speech|collapsed|unconscious|choking)\b/i.test(text);
+  const presentCue = /\b(i am having|i'm having|i have|my wife|my husband|my child|my son|my daughter|my sister|my brother|my neighbor|my friend|my coworker|my classmate|i can't|i cannot)\b/i.test(text);
+  const petSymptom = /\b(?:my|our) (?:dog|cat|pet|puppy|kitten)\b[\s\S]{0,90}\b(?:choking|can't breathe|cannot breathe|bleeding heavily|unconscious)\b/i.test(text);
+  const humanSymptom = /\b(?:my|our) (?:wife|husband|child|son|daughter|sister|brother|mother|father|parent|neighbor|friend|coworker|classmate|roommate|partner)\b[\s\S]{0,90}\b(?:chest pain|crushing pain|stroke|can't breathe|cannot breathe|not breathing|choking|collapsed|unconscious|bleeding heavily|arm weakness|slurred speech)\b/i.test(text)
+    || /\b(?:i am|i'm|i have|i can't|i cannot)\b[\s\S]{0,70}\b(?:chest pain|crushing pain|stroke|can't breathe|cannot breathe|not breathing|choking|collapsed|unconscious|bleeding heavily|arm weakness|slurred speech)\b/i.test(text);
+  if (petSymptom && !humanSymptom) return false;
   return symptom && (urgentNow || presentCue || (!historical && /\b(i|i'm|i am|my|me)\b/i.test(text)));
 }
 
 function isViolenceRisk(text) {
-  return /\b(i(?:'m| am) going to (?:hurt|kill|attack) (?:someone|somebody|a person|him|her|them|my [a-z]+)|i want to (?:kill|hurt|harm) (?:someone|somebody|a person|my [a-z]+)|i might (?:kill|hurt) (?:someone|somebody|a person)|i will (?:shoot|stab|kill|hurt) (?:[a-z]+|my [a-z]+)|voices telling me to hurt people|voices (?:are )?telling me to kill)\b/i.test(text);
+  return /\b(i(?:'m| am) going to (?:hurt|kill|attack) (?:someone|somebody|a person|him|her|them|my [a-z]+)|i (?:plan|intend|want|am planning|am about|might|will|am going) to (?:kill|attack|hurt|harm|shoot|stab) (?:someone|somebody|a person|him|her|them|a [a-z]+|my [a-z]+)|i want to (?:kill|hurt|harm) (?:someone|somebody|a person|my [a-z]+)|i might (?:kill|hurt) (?:someone|somebody|a person)|i will (?:shoot|stab|kill|hurt) (?:[a-z]+|my [a-z]+)|voices telling me to hurt people|voices (?:are )?telling me to kill)\b/i.test(text);
+}
+
+// Conservative secondary routing for explicitly described acute real-world
+// danger not covered by the narrow category-specific phrases above. This is a
+// finite fail-safe cue list, not a claim of comprehensive crisis classification.
+const CLEAR_DANGER_CUES = Object.freeze([
+  /\bi (?:am|feel) ready to die\b/i,
+  /\bi (?:am|will|plan to|intend to) (?:about to )?jump off (?:a |the )?(?:\w+ )?(?:bridge|overpass|roof|building|cliff)/i,
+  /\b(?:my|our) (?:friend|relative|cousin|roommate|coworker|colleague|partner|spouse|sister|brother|child|son|daughter|classmate)\b[\s\S]{0,140}\b(?:take (?:his|her|their) own life|hurt (?:himself|herself|themselves)|overdos(?:e|ed)|swallowed (?:a bottle|too many) (?:of )?pills|unresponsive)\b/i,
+  /\b(?:a|the) (?:student|teenager|child|person)\b[\s\S]{0,100}\b(?:roof|bridge|overpass)\b[\s\S]{0,60}\b(?:jump|kill themselves|kill himself|kill herself)\b/i,
+  /\b(?:my|our) (?:neighbor|daughter|son|child|brother|sister|father|mother|friend|roommate|partner|coworker)\b[\s\S]{0,100}\b(?:seizure|cannot talk|one side is weak|bleeding out|cannot breathe|not breathing|having a stroke)\b/i,
+  /\bi (?:cannot|can't) catch my breath\b|\bi am gasping\b|\bi (?:just )?took (?:a lot|many|too many) of pills (?:on purpose|to hurt myself)\b/i,
+  /\bi (?:am thinking of|am planning to|plan to|intend to|may|might|will|am going to)\s+(?:shooting|shoot|attacking|attack|hurting|hurt|killing|kill|stabbing|stab)\s+(?:a|my|the|someone|somebody|people|person)\b/i,
+  /\b(?:my|our) (?:classmate|partner|neighbor|friend|coworker|roommate|relative)\b[\s\S]{0,90}\b(?:threaten(?:ed|ing|s)? to (?:shoot|kill|attack)|has a (?:gun|knife|weapon) and (?:is )?threatening)\b/i,
+  /\b(?:a student|a person|someone|somebody)\b[\s\S]{0,80}\b(?:holding (?:people|someone|a person) hostage|has a weapon and plans? to attack|threatening to murder)\b/i,
+  /\bi (?:am trapped|feel unsafe)\b[\s\S]{0,90}\b(?:violent person|trying to hurt me|threatening to hurt me)\b/i
+]);
+
+function isClearRealWorldDanger(text) {
+  return CLEAR_DANGER_CUES.some(cue => cue.test(text));
 }
 
 function extractName(text) {
@@ -218,11 +246,15 @@ function regularReply(input, memory) {
   return null;
 }
 
-export function createBadgey({ lookup = () => [], allowedLookupSubjects = [] } = {}) {
+export function createBadgey({ lookup = () => [], allowedLookupSubjects = [], allowedSourceHosts = [] } = {}) {
   if (typeof lookup !== 'function') throw new TypeError('lookup must be a function');
   if (!Array.isArray(allowedLookupSubjects) || allowedLookupSubjects.length > 5000)
     throw new TypeError('allowedLookupSubjects must be a bounded array');
+  if (!Array.isArray(allowedSourceHosts) || allowedSourceHosts.length > 100)
+    throw new TypeError('allowedSourceHosts must be a bounded array');
   const allowedSubjects = new Set(allowedLookupSubjects.map(normalizeSubject).filter(Boolean));
+  const sourceHosts = new Set(allowedSourceHosts.filter(host => typeof host === 'string'
+    && /^[a-z0-9.-]{1,253}$/i.test(host)).map(host => host.toLowerCase()));
   const history = [];
   const memory = { name: null, dog: null };
 
@@ -239,10 +271,14 @@ export function createBadgey({ lookup = () => [], allowedLookupSubjects = [] } =
     }
     // Classify urgent disclosures even in an oversized message. Do not expose
     // an unbounded user payload to history or the normal research adapter.
-    const safetyInput = input.slice(0, MAX_INPUT * 4);
+    const safetyInput = input.length <= MAX_SAFETY_SCAN ? input
+      : `${input.slice(0, MAX_SAFETY_SCAN / 2)}\n${input.slice(-MAX_SAFETY_SCAN / 2)}`;
     if (input.length > MAX_INPUT && ![isSelfHarm, isOtherSelfHarmRisk,
-      isMedicalEmergency, isPetEmergency, isViolenceRisk].some((classify) => classify(safetyInput))) {
-      return Object.freeze({ text: `Enter a message between 1 and ${MAX_INPUT} characters.`, kind: 'input-error', sources: [] });
+      isMedicalEmergency, isPetEmergency, isViolenceRisk, isClearRealWorldDanger].some((classify) => classify(safetyInput))) {
+      return Object.freeze({
+        text: `Enter a message between 1 and ${MAX_INPUT} characters. This console cannot fully examine long messages. If any part concerns immediate danger, contact emergency services now (911 in the U.S.); for self-harm concerns, U.S. callers can call or text 988.`,
+        kind: 'input-error', sources: []
+      });
     }
 
     let response;
@@ -256,11 +292,6 @@ export function createBadgey({ lookup = () => [], allowedLookupSubjects = [] } =
         text: 'I take this seriously. If someone may hurt themselves soon, contact emergency services or a local crisis line now. If you can do so safely, stay with them and help them reach a trusted person or professional. In the U.S. you can call or text 988 for crisis support. This console cannot assess their immediate risk.',
         kind: 'urgent-safety', sources: []
       };
-    } else if (isPetEmergency(safetyInput)) {
-      response = {
-        text: 'That sounds urgent for an animal. Contact a veterinarian or emergency animal hospital immediately. This fictional chat cannot assess or treat a pet emergency.',
-        kind: 'urgent-safety', sources: []
-      };
     } else if (isMedicalEmergency(safetyInput)) {
       response = {
         text: 'Chest pain, trouble breathing, or similar acute symptoms can be an emergency. Call emergency services now (911 in the U.S.), and do not wait for this chat. This console cannot assess your medical condition.',
@@ -269,6 +300,16 @@ export function createBadgey({ lookup = () => [], allowedLookupSubjects = [] } =
     } else if (isViolenceRisk(safetyInput)) {
       response = {
         text: 'I take that seriously, and I will not encourage harming anyone. Please put distance between yourself and the person or any weapon, and get immediate help from local emergency services if someone may be in danger. Reach out to a trusted person or local crisis service for support now.',
+        kind: 'urgent-safety', sources: []
+      };
+    } else if (isClearRealWorldDanger(safetyInput)) {
+      response = {
+        text: 'That sounds potentially urgent. If someone could be harmed or is medically unwell, contact emergency services now (911 in the U.S.) and get a nearby trusted person to help if safe. For a possible suicide or self-harm crisis in the U.S., call or text 988. This limited browser-local character cannot assess the danger, and you should not wait for its reply.',
+        kind: 'urgent-safety', sources: []
+      };
+    } else if (isPetEmergency(safetyInput)) {
+      response = {
+        text: 'That sounds urgent for an animal. Contact a veterinarian or emergency animal hospital immediately. This fictional chat cannot assess or treat a pet emergency.',
         kind: 'urgent-safety', sources: []
       };
     } else {
@@ -285,7 +326,7 @@ export function createBadgey({ lookup = () => [], allowedLookupSubjects = [] } =
         if (subject) try {
           const rows = lookup(subject);
           if (rows && typeof rows.then === 'function') throw new TypeError('lookup must be synchronous');
-          const sources = Array.isArray(rows) ? rows.slice(0, MAX_SOURCES).map(cleanSource).filter(Boolean) : [];
+          const sources = Array.isArray(rows) ? rows.slice(0, MAX_SOURCES).map(row => cleanSource(row, sourceHosts)).filter(Boolean) : [];
           response = sources.length ? {
             text: `I found ${sources.length} discovery pointer${sources.length === 1 ? '' : 's'} or source-local research lead${sources.length === 1 ? '' : 's'} for that question. They are not accepted canon or conclusions. Follow source links and check the accepted evidence ledger before citing them.`,
             kind: 'research-lead', sources
