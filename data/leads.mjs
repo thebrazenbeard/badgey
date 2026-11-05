@@ -5,6 +5,8 @@ const LEADS = Object.freeze([
 ]);
 
 export const LEAD_SUBJECTS = Object.freeze([...new Set(LEADS.flatMap(row => row.terms))]);
+// Configured independently of callback rows; unknown hosts are never links.
+export const LEAD_SOURCE_HOSTS = Object.freeze(['www.startrek.com']);
 
 export function lookupLeads(subject) {
   if (typeof subject !== 'string') return [];
