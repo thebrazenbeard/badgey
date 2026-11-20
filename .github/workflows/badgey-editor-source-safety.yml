@@ -1,0 +1,23 @@
+name: Badgey editor source security
+
+on:
+  pull_request:
+  push:
+    branches: [main, 'security/**']
+
+permissions:
+  contents: read
+
+jobs:
+  source-and-app:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out source without persisted credentials
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Run isolated source startup checks
+        run: python3 -B -m unittest discover -s tests -p 'test_badgey_editor_source.py' -v
+      - name: Run Badgey application tests
+        run: npm test
